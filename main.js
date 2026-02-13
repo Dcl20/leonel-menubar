@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen, desktopCapturer, systemPreferences } = require('electron');
 const path = require('path');
 
 const gotLock = app.requestSingleInstanceLock();
@@ -14,6 +14,12 @@ app.whenReady().then(() => {
   createWindow();
   registerShortcut();
   ipcMain.on('hide-window', () => hideWindow());
+  ipcMain.handle('check-screen-permission', () => {
+    if (process.platform === 'darwin') {
+      return systemPreferences.getMediaAccessStatus('screen');
+    }
+    return 'granted';
+  });
 });
 
 function createTray() {
@@ -41,6 +47,28 @@ function getDefaultPosition() {
   const display = screen.getPrimaryDisplay();
   const { height: sh } = display.workAreaSize;
   return { x: 20, y: sh - 300 };
+}
+
+async function captureScreenshot() {
+  try {
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('screen');
+      if (status === 'denied') return null;
+    }
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    if (!sources || sources.length === 0) return null;
+    const img = sources[0].thumbnail;
+    if (img.isEmpty()) return null;
+    const buf = img.toJPEG(70);
+    if (buf.length < 5000) return null; // empty/black screen = no permission
+    return buf.toString('base64');
+  } catch (e) {
+    console.error('[Screenshot] Error:', e);
+    return null;
+  }
 }
 
 function createWindow() {
@@ -203,7 +231,7 @@ function hideWindow() {
   }
 }
 
-function toggleWindow() {
+async function toggleWindow() {
   if (!win || win.isDestroyed()) {
     createWindow();
   }
@@ -213,11 +241,17 @@ function toggleWindow() {
     return;
   }
 
+  // Capture screenshot while window is still hidden
+  const screenshot = await captureScreenshot();
+
   const pos = getDefaultPosition();
   win.setPosition(pos.x, pos.y);
   win.setSize(340, 280);
   win.show();
   win.focus();
+
+  // Send screenshot to renderer
+  win.webContents.send('screenshot-captured', screenshot);
 }
 
 function registerShortcut() {
