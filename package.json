@@ -1,0 +1,38 @@
+{
+  "name": "leonel-quick",
+  "version": "1.0.0",
+  "description": "Leonel Quick - Menu bar app para respuestas rápidas",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac",
+    "build:dmg": "electron-builder --mac dmg",
+    "build:zip": "electron-builder --mac zip"
+  },
+  "build": {
+    "appId": "app.leonel.quick",
+    "productName": "Leonel Quick",
+    "artifactName": "Leonel.Quick-${version}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "assets/icon.png",
+      "target": ["dmg"]
+    },
+    "dmg": {
+      "title": "Leonel Quick",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

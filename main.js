@@ -1,0 +1,229 @@
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen } = require('electron');
+const path = require('path');
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) { app.quit(); }
+
+let tray = null;
+let win = null;
+
+if (app.dock) app.dock.hide();
+
+app.whenReady().then(() => {
+  createTray();
+  createWindow();
+  registerShortcut();
+  ipcMain.on('hide-window', () => hideWindow());
+});
+
+function createTray() {
+  const iconPath = path.join(__dirname, 'assets', 'iconTemplate.png');
+  const icon = nativeImage.createFromPath(iconPath);
+  icon.setTemplateImage(true);
+
+  tray = new Tray(icon);
+  tray.setToolTip('Quick by Leonel (⌘L)');
+  tray.on('click', () => toggleWindow());
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Abrir (⌘L)', click: () => toggleWindow() },
+    { type: 'separator' },
+    { label: 'Reiniciar', click: () => {
+      if (win && !win.isDestroyed()) win.loadURL('https://leonel.app/exam');
+    }},
+    { type: 'separator' },
+    { label: 'Salir', click: () => app.exit(0) },
+  ]);
+  tray.on('right-click', () => tray.popUpContextMenu(contextMenu));
+}
+
+function getDefaultPosition() {
+  const display = screen.getPrimaryDisplay();
+  const { height: sh } = display.workAreaSize;
+  return { x: 20, y: sh - 300 };
+}
+
+function createWindow() {
+  const pos = getDefaultPosition();
+
+  win = new BrowserWindow({
+    width: 340,
+    height: 280,
+    x: pos.x,
+    y: pos.y,
+    minWidth: 300,
+    minHeight: 220,
+    show: false,
+    frame: false,
+    resizable: true,
+    movable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: true,
+    backgroundColor: '#141414',
+    roundedCorners: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  // Start on the main page so user can log in, then redirect to /exam
+  win.loadURL('https://leonel.app');
+
+  // After each page load, check if we should redirect to /exam
+  win.webContents.on('did-finish-load', () => {
+    injectUI();
+    checkAndRedirect();
+  });
+
+  // Let leonel.app links navigate inside the window; external links open in browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.includes('leonel.app')) {
+      win.loadURL(url);
+    } else {
+      require('electron').shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  win.on('close', (e) => {
+    e.preventDefault();
+    win.hide();
+  });
+}
+
+function checkAndRedirect() {
+  if (!win || win.isDestroyed()) return;
+
+  const currentURL = win.webContents.getURL();
+
+  // If already on /exam, we're good
+  if (currentURL.includes('/exam')) return;
+
+  // If on main page, check if logged in and redirect to /exam
+  win.webContents.executeJavaScript(`
+    (function() {
+      // Check for Supabase auth token in localStorage
+      var keys = Object.keys(localStorage);
+      for (var i = 0; i < keys.length; i++) {
+        if (keys[i].startsWith('sb-') && keys[i].includes('auth-token')) {
+          return true;
+        }
+      }
+      return false;
+    })();
+  `).then(hasAuth => {
+    if (hasAuth) {
+      win.loadURL('https://leonel.app/exam');
+    }
+  }).catch(() => {});
+}
+
+function injectUI() {
+  if (!win || win.isDestroyed()) return;
+
+  win.webContents.executeJavaScript(`
+    (function() {
+      // --- Drag bar (just for moving, no buttons) ---
+      if (!document.getElementById('leonel-bar')) {
+        var bar = document.createElement('div');
+        bar.id = 'leonel-bar';
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:24px;-webkit-app-region:drag;z-index:99999;background:transparent;cursor:grab';
+        document.body.prepend(bar);
+      }
+
+      // --- Escape to hide ---
+      if (!window._leonelKeys) {
+        window._leonelKeys = true;
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape' && window.leonel) window.leonel.hide();
+        });
+      }
+
+      // --- Drag & drop images ---
+      if (!window._leonelDrop) {
+        window._leonelDrop = true;
+
+        document.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+
+        document.addEventListener('drop', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          var files = e.dataTransfer && e.dataTransfer.files;
+          if (!files || files.length === 0) return;
+
+          var file = files[0];
+          if (!file.type.startsWith('image/')) return;
+
+          var fileInput = document.querySelector('input[type="file"][accept="image/*"]');
+          if (fileInput) {
+            var dt = new DataTransfer();
+            dt.items.add(file);
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+
+        document.addEventListener('dragenter', function(e) {
+          e.preventDefault();
+          if (!document.getElementById('leonel-drop-overlay')) {
+            var overlay = document.createElement('div');
+            overlay.id = 'leonel-drop-overlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(255,131,0,0.1);border:2px dashed rgba(255,131,0,0.5);border-radius:16px;display:flex;align-items:center;justify-content:center;pointer-events:none';
+            overlay.innerHTML = '<div style="background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:10px;color:#FF8300;font-size:13px;font-weight:600">Suelta la imagen aqui</div>';
+            document.body.appendChild(overlay);
+          }
+        });
+
+        document.addEventListener('dragleave', function(e) {
+          if (e.relatedTarget === null || e.relatedTarget === document.documentElement) {
+            var ov = document.getElementById('leonel-drop-overlay');
+            if (ov) ov.remove();
+          }
+        });
+
+        document.addEventListener('drop', function() {
+          var ov = document.getElementById('leonel-drop-overlay');
+          if (ov) ov.remove();
+        });
+      }
+    })();
+  `).catch(() => {});
+}
+
+function hideWindow() {
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    win.hide();
+  }
+}
+
+function toggleWindow() {
+  if (!win || win.isDestroyed()) {
+    createWindow();
+  }
+
+  if (win.isVisible()) {
+    win.hide();
+    return;
+  }
+
+  const pos = getDefaultPosition();
+  win.setPosition(pos.x, pos.y);
+  win.setSize(340, 280);
+  win.show();
+  win.focus();
+}
+
+function registerShortcut() {
+  globalShortcut.register('CommandOrControl+L', () => toggleWindow());
+}
+
+app.on('window-all-closed', (e) => e.preventDefault());
+app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('second-instance', () => toggleWindow());
