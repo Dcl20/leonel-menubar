@@ -6,6 +6,7 @@ if (!gotLock) { app.quit(); }
 
 let tray = null;
 let win = null;
+let lastScreenshot = null;
 
 if (app.dock) app.dock.hide();
 
@@ -20,6 +21,7 @@ app.whenReady().then(() => {
     }
     return 'granted';
   });
+  ipcMain.handle('get-screenshot', () => lastScreenshot);
 });
 
 function createTray() {
@@ -63,10 +65,9 @@ async function captureScreenshot() {
     const img = sources[0].thumbnail;
     if (img.isEmpty()) return null;
     const buf = img.toJPEG(70);
-    if (buf.length < 5000) return null; // empty/black screen = no permission
+    if (buf.length < 5000) return null;
     return buf.toString('base64');
   } catch (e) {
-    console.error('[Screenshot] Error:', e);
     return null;
   }
 }
@@ -104,6 +105,21 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     injectUI();
     checkAndRedirect();
+  });
+
+  // Also catch SPA navigations (e.g. after login)
+  win.webContents.on('did-navigate-in-page', () => {
+    checkAndRedirect();
+  });
+
+  // Capture screenshot whenever window becomes visible (fallback if toggleWindow wasn't the trigger)
+  win.on('show', () => {
+    captureScreenshot().then(screenshot => {
+      lastScreenshot = screenshot;
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('screenshot-captured', screenshot);
+      }
+    });
   });
 
   // Let leonel.app links navigate inside the window; external links open in browser
@@ -231,7 +247,7 @@ function hideWindow() {
   }
 }
 
-async function toggleWindow() {
+function toggleWindow() {
   if (!win || win.isDestroyed()) {
     createWindow();
   }
@@ -241,17 +257,20 @@ async function toggleWindow() {
     return;
   }
 
-  // Capture screenshot while window is still hidden
-  const screenshot = await captureScreenshot();
-
+  // Show IMMEDIATELY — no delay
   const pos = getDefaultPosition();
   win.setPosition(pos.x, pos.y);
   win.setSize(340, 280);
   win.show();
   win.focus();
 
-  // Send screenshot to renderer
-  win.webContents.send('screenshot-captured', screenshot);
+  // Capture screenshot async AFTER showing (non-blocking)
+  captureScreenshot().then(screenshot => {
+    lastScreenshot = screenshot;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('screenshot-captured', screenshot);
+    }
+  });
 }
 
 function registerShortcut() {
