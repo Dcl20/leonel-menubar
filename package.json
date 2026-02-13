@@ -16,8 +16,10 @@
     "mac": {
       "category": "public.app-category.education",
       "icon": "assets/icon.png",
-      "target": ["dmg"]
+      "target": ["dmg"],
+      "identity": null
     },
+    "afterPack": "./scripts/afterPack.js",
     "dmg": {
       "title": "Leonel Quick",
       "contents": [
