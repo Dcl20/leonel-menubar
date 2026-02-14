@@ -22,19 +22,30 @@ app.whenReady().then(() => {
     return 'granted';
   });
   ipcMain.handle('get-screenshot', () => lastScreenshot);
+
+  // Trigger screen recording permission prompt on first launch
+  desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }).catch(() => {});
 });
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'iconTemplate.png');
-  const icon = nativeImage.createFromPath(iconPath);
-  icon.setTemplateImage(true);
+  const isMac = process.platform === 'darwin';
+  const shortcut = isMac ? '⌘L' : 'Ctrl+L';
+
+  let icon;
+  if (isMac) {
+    const iconPath = path.join(__dirname, 'assets', 'iconTemplate.png');
+    icon = nativeImage.createFromPath(iconPath);
+    icon.setTemplateImage(true);
+  } else {
+    icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png'));
+  }
 
   tray = new Tray(icon);
-  tray.setToolTip('Quick by Leonel (⌘L)');
+  tray.setToolTip(`Quick by Leonel (${shortcut})`);
   tray.on('click', () => toggleWindow());
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Abrir (⌘L)', click: () => toggleWindow() },
+    { label: `Abrir (${shortcut})`, click: () => toggleWindow() },
     { type: 'separator' },
     { label: 'Reiniciar', click: () => {
       if (win && !win.isDestroyed()) win.loadURL('https://leonel.app/exam');
@@ -112,14 +123,11 @@ function createWindow() {
     checkAndRedirect();
   });
 
-  // Capture screenshot whenever window becomes visible (fallback if toggleWindow wasn't the trigger)
+  // Send last screenshot when window becomes visible (fallback for tray click, etc.)
   win.on('show', () => {
-    captureScreenshot().then(screenshot => {
-      lastScreenshot = screenshot;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('screenshot-captured', screenshot);
-      }
-    });
+    if (lastScreenshot && !win.isDestroyed()) {
+      win.webContents.send('screenshot-captured', lastScreenshot);
+    }
   });
 
   // Let leonel.app links navigate inside the window; external links open in browser
@@ -257,7 +265,7 @@ function toggleWindow() {
     return;
   }
 
-  // Show IMMEDIATELY — no delay
+  // Show IMMEDIATELY at default position/size
   const pos = getDefaultPosition();
   win.setPosition(pos.x, pos.y);
   win.setSize(340, 280);

@@ -7,24 +7,57 @@
     "start": "electron .",
     "build": "electron-builder --mac",
     "build:dmg": "electron-builder --mac dmg",
-    "build:zip": "electron-builder --mac zip"
+    "build:zip": "electron-builder --mac zip",
+    "build:win": "electron-builder --win"
   },
   "build": {
+    "directories": {
+      "output": "/tmp/leonel-quick-dist"
+    },
     "appId": "app.leonel.quick",
     "productName": "Leonel Quick",
     "artifactName": "Leonel.Quick-${version}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.education",
       "icon": "assets/icon.png",
-      "target": ["dmg"],
-      "identity": null
+      "target": [
+        "dmg"
+      ],
+      "identity": "diego calderon (75TCB2YURF)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.plist",
+      "entitlementsInherit": "entitlements.plist"
     },
-    "afterPack": "./scripts/afterPack.js",
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "shortcutName": "Leonel Quick"
+    },
+    "afterSign": "./scripts/notarize.js",
     "dmg": {
       "title": "Leonel Quick",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "files": [
@@ -34,6 +67,7 @@
     ]
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
   }
