@@ -7,6 +7,20 @@ if (!gotLock) { app.quit(); }
 let tray = null;
 let win = null;
 let lastScreenshot = null;
+let pendingAuthUrl = null;
+
+// Register custom protocol (must be before ready)
+app.setAsDefaultProtocolClient('leonel-quick');
+
+// macOS: open-url can fire before app is ready
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (win && !win.isDestroyed()) {
+    handleProtocolUrl(url);
+  } else {
+    pendingAuthUrl = url;
+  }
+});
 
 if (app.dock) app.dock.hide();
 
@@ -25,6 +39,16 @@ app.whenReady().then(() => {
 
   // Trigger screen recording permission prompt on first launch
   desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }).catch(() => {});
+
+  // Process pending auth URL (macOS: open-url may have fired before ready)
+  if (pendingAuthUrl) {
+    handleProtocolUrl(pendingAuthUrl);
+    pendingAuthUrl = null;
+  }
+
+  // Windows: check argv for protocol URL on first launch
+  const protocolArg = process.argv.find(a => a.startsWith('leonel-quick://'));
+  if (protocolArg) handleProtocolUrl(protocolArg);
 });
 
 function createTray() {
@@ -287,4 +311,30 @@ function registerShortcut() {
 
 app.on('window-all-closed', (e) => e.preventDefault());
 app.on('will-quit', () => globalShortcut.unregisterAll());
-app.on('second-instance', () => toggleWindow());
+app.on('second-instance', (_event, argv) => {
+  // Windows: protocol URL comes in argv of second instance
+  const protocolArg = argv.find(a => a.startsWith('leonel-quick://'));
+  if (protocolArg) {
+    handleProtocolUrl(protocolArg);
+  } else {
+    toggleWindow();
+  }
+});
+
+function handleProtocolUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'leonel-quick:') return;
+
+    const refreshToken = parsed.searchParams.get('rt');
+    if (!refreshToken) return;
+
+    if (!win || win.isDestroyed()) createWindow();
+
+    win.loadURL(`https://leonel.app/exam?quick_auth=${encodeURIComponent(refreshToken)}`);
+    win.show();
+    win.focus();
+  } catch (e) {
+    // Invalid URL, ignore
+  }
+}

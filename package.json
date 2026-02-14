@@ -14,6 +14,12 @@
     "directories": {
       "output": "/tmp/leonel-quick-dist"
     },
+    "protocols": [
+      {
+        "name": "Leonel Quick Auth",
+        "schemes": ["leonel-quick"]
+      }
+    ],
     "appId": "app.leonel.quick",
     "productName": "Leonel Quick",
     "artifactName": "Leonel.Quick-${version}-${arch}.${ext}",
