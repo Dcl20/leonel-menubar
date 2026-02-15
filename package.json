@@ -12,7 +12,7 @@
   },
   "build": {
     "directories": {
-      "output": "/tmp/leonel-quick-dist"
+      "output": "./dist"
     },
     "protocols": [
       {
@@ -31,7 +31,7 @@
       ],
       "identity": "diego calderon (75TCB2YURF)",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false,
+      "gatekeeperAssess": true,
       "entitlements": "entitlements.plist",
       "entitlementsInherit": "entitlements.plist"
     },

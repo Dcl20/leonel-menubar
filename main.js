@@ -1,6 +1,14 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen, desktopCapturer, systemPreferences } = require('electron');
 const path = require('path');
 
+// Global error handlers - log but don't crash
+process.on('uncaughtException', (err) => {
+  console.error('[leonel-quick] Uncaught exception:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[leonel-quick] Unhandled rejection:', reason);
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); }
 
@@ -101,6 +109,8 @@ async function captureScreenshot() {
     if (img.isEmpty()) return null;
     const buf = img.toJPEG(70);
     if (buf.length < 5000) return null;
+    // 5MB size limit
+    if (buf.length > 5 * 1024 * 1024) return null;
     return buf.toString('base64');
   } catch (e) {
     return null;
@@ -323,18 +333,33 @@ app.on('second-instance', (_event, argv) => {
 
 function handleProtocolUrl(url) {
   try {
+    if (typeof url !== 'string' || !url.startsWith('leonel-quick://')) {
+      console.warn('[leonel-quick] Invalid protocol URL format');
+      return;
+    }
+
     const parsed = new URL(url);
     if (parsed.protocol !== 'leonel-quick:') return;
 
     const refreshToken = parsed.searchParams.get('rt');
-    if (!refreshToken) return;
+    if (!refreshToken || refreshToken.length < 10 || refreshToken.length > 4096) {
+      console.warn('[leonel-quick] Invalid or missing refresh token');
+      return;
+    }
 
     if (!win || win.isDestroyed()) createWindow();
 
-    win.loadURL(`https://leonel.app/exam?quick_auth=${encodeURIComponent(refreshToken)}`);
+    // Load page WITHOUT token in URL, then inject via localStorage
+    win.loadURL('https://leonel.app/exam');
+    win.webContents.once('did-finish-load', () => {
+      const sanitized = refreshToken.replace(/[\\'"]/g, '');
+      win.webContents.executeJavaScript(
+        `localStorage.setItem('leonel_quick_auth', '${sanitized}')`
+      ).catch(() => {});
+    });
     win.show();
     win.focus();
   } catch (e) {
-    // Invalid URL, ignore
+    console.error('[leonel-quick] Protocol handler error:', e.message);
   }
 }
