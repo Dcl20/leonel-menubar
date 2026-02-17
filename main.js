@@ -119,6 +119,7 @@ async function captureScreenshot() {
 
 function createWindow() {
   const pos = getDefaultPosition();
+  const isWin = process.platform === 'win32';
 
   win = new BrowserWindow({
     width: 340,
@@ -127,15 +128,20 @@ function createWindow() {
     y: pos.y,
     minWidth: 300,
     minHeight: 220,
+    maxWidth: 600,
+    maxHeight: 500,
     show: false,
     frame: false,
     resizable: true,
     movable: true,
+    maximizable: false,
+    fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: true,
     backgroundColor: '#141414',
     roundedCorners: true,
+    ...(isWin ? { type: 'toolbar', thickFrame: false } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -148,6 +154,7 @@ function createWindow() {
 
   // After each page load, check if we should redirect to /exam
   win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomFactor(0.85);
     injectUI();
     checkAndRedirect();
   });
@@ -299,12 +306,17 @@ function toggleWindow() {
     return;
   }
 
-  // Show IMMEDIATELY at default position/size
+  // Show at default position/size
   const pos = getDefaultPosition();
-  win.setPosition(pos.x, pos.y);
-  win.setSize(340, 280);
+  win.setBounds({ x: pos.x, y: pos.y, width: 340, height: 280 });
   win.show();
   win.focus();
+
+  // Windows DPI workaround: re-apply bounds after show (first call can be wrong)
+  if (process.platform === 'win32') {
+    win.setBounds({ x: pos.x, y: pos.y, width: 340, height: 280 });
+    win.setSkipTaskbar(true);
+  }
 
   // Capture screenshot async AFTER showing (non-blocking)
   captureScreenshot().then(screenshot => {
@@ -349,14 +361,14 @@ function handleProtocolUrl(url) {
 
     if (!win || win.isDestroyed()) createWindow();
 
-    // Load page WITHOUT token in URL, then inject via localStorage
-    win.loadURL('https://leonel.app/exam');
-    win.webContents.once('did-finish-load', () => {
-      const sanitized = refreshToken.replace(/[\\'"]/g, '');
-      win.webContents.executeJavaScript(
-        `localStorage.setItem('leonel_quick_auth', '${sanitized}')`
-      ).catch(() => {});
-    });
+    // Whitelist: only allow alphanumeric, hyphens, underscores, dots
+    const sanitized = refreshToken.replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!sanitized || sanitized.length < 10) {
+      console.warn('[leonel-quick] Token failed sanitization');
+      return;
+    }
+
+    win.loadURL(`https://leonel.app/exam?quick_auth=${encodeURIComponent(sanitized)}`);
     win.show();
     win.focus();
   } catch (e) {

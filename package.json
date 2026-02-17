@@ -50,6 +50,7 @@
       "allowToChangeInstallationDirectory": false,
       "shortcutName": "Leonel Quick"
     },
+    "afterPack": "./scripts/afterPack.js",
     "afterSign": "./scripts/notarize.js",
     "dmg": {
       "title": "Leonel Quick",
