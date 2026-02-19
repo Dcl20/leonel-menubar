@@ -16,6 +16,7 @@ let tray = null;
 let win = null;
 let lastScreenshot = null;
 let pendingAuthUrl = null;
+let redirectInterval = null;
 
 // Register custom protocol (must be before ready)
 app.setAsDefaultProtocolClient('leonel-quick');
@@ -157,6 +158,7 @@ function createWindow() {
     win.webContents.setZoomFactor(0.85);
     injectUI();
     checkAndRedirect();
+    startRedirectPolling();
   });
 
   // Also catch SPA navigations (e.g. after login)
@@ -187,13 +189,37 @@ function createWindow() {
   });
 }
 
+function startRedirectPolling() {
+  if (redirectInterval) clearInterval(redirectInterval);
+  let elapsed = 0;
+  redirectInterval = setInterval(() => {
+    elapsed += 1000;
+    if (elapsed >= 30000) {
+      clearInterval(redirectInterval);
+      redirectInterval = null;
+      return;
+    }
+    checkAndRedirect();
+  }, 1000);
+}
+
+function stopRedirectPolling() {
+  if (redirectInterval) {
+    clearInterval(redirectInterval);
+    redirectInterval = null;
+  }
+}
+
 function checkAndRedirect() {
   if (!win || win.isDestroyed()) return;
 
   const currentURL = win.webContents.getURL();
 
-  // If already on /exam, we're good
-  if (currentURL.includes('/exam')) return;
+  // If already on /exam, we're good — stop polling
+  if (currentURL.includes('/exam')) {
+    stopRedirectPolling();
+    return;
+  }
 
   // If on main page, check if logged in and redirect to /exam
   win.webContents.executeJavaScript(`
@@ -209,6 +235,7 @@ function checkAndRedirect() {
     })();
   `).then(hasAuth => {
     if (hasAuth) {
+      stopRedirectPolling();
       win.loadURL('https://leonel.app/exam');
     }
   }).catch(() => {});
@@ -296,7 +323,7 @@ function hideWindow() {
   }
 }
 
-function toggleWindow() {
+async function toggleWindow() {
   if (!win || win.isDestroyed()) {
     createWindow();
   }
@@ -306,7 +333,11 @@ function toggleWindow() {
     return;
   }
 
-  // Show at default position/size
+  // 1. Capture screenshot BEFORE showing (user's window is still in foreground)
+  const screenshot = await captureScreenshot();
+  lastScreenshot = screenshot;
+
+  // 2. Now show the Leonel window
   const pos = getDefaultPosition();
   win.setBounds({ x: pos.x, y: pos.y, width: 340, height: 280 });
   win.show();
@@ -318,13 +349,10 @@ function toggleWindow() {
     win.setSkipTaskbar(true);
   }
 
-  // Capture screenshot async AFTER showing (non-blocking)
-  captureScreenshot().then(screenshot => {
-    lastScreenshot = screenshot;
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('screenshot-captured', screenshot);
-    }
-  });
+  // 3. Send the pre-captured screenshot
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('screenshot-captured', screenshot);
+  }
 }
 
 function registerShortcut() {
