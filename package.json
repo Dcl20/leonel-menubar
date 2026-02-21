@@ -1,6 +1,6 @@
 {
   "name": "leonel-quick",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Leonel Quick - Menu bar app para respuestas rápidas",
   "main": "main.js",
   "scripts": {
@@ -71,7 +71,15 @@
       "main.js",
       "preload.js",
       "assets/**/*"
-    ]
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "dcl20",
+      "repo": "leonel-menubar"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7"
   },
   "devDependencies": {
     "@electron/notarize": "^3.1.1",

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen, desktopCapturer, systemPreferences } = require('electron');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
 
 // Global error handlers - log but don't crash
 process.on('uncaughtException', (err) => {
@@ -37,6 +38,11 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
   registerShortcut();
+
+  // Auto-updater (silent check)
+  autoUpdater.logger = null;
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+
   ipcMain.on('hide-window', () => hideWindow());
   ipcMain.handle('check-screen-permission', () => {
     if (process.platform === 'darwin') {
@@ -146,6 +152,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -175,9 +182,14 @@ function createWindow() {
 
   // Let leonel.app links navigate inside the window; external links open in browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('leonel.app')) {
-      win.loadURL(url);
-    } else {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'leonel.app' || parsed.hostname.endsWith('.leonel.app')) {
+        win.loadURL(url);
+      } else {
+        require('electron').shell.openExternal(url);
+      }
+    } catch {
       require('electron').shell.openExternal(url);
     }
     return { action: 'deny' };
