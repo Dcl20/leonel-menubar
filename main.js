@@ -296,32 +296,6 @@ function injectUI() {
         document.body.prepend(bar);
       }
 
-      // --- Hide minimize button (Minus icon from Lucide) ---
-      // The button contains an SVG with a horizontal line (Minus icon)
-      // Find it by looking for buttons with an SVG that has a single <line> or <path> for minus
-      var allButtons = document.querySelectorAll('button');
-      allButtons.forEach(function(btn) {
-        var svg = btn.querySelector('svg');
-        if (!svg) return;
-        // Lucide Minus icon: SVG with a single <line> element (y1=12, y2=12) or path with "M5 12h14"
-        var lines = svg.querySelectorAll('line');
-        var paths = svg.querySelectorAll('path');
-        // Check for minus: single horizontal line
-        if (lines.length === 1 && paths.length === 0) {
-          var line = lines[0];
-          if (line.getAttribute('y1') === line.getAttribute('y2')) {
-            btn.style.display = 'none';
-          }
-        }
-        // Also check path-based minus
-        if (paths.length === 1 && lines.length === 0) {
-          var d = paths[0].getAttribute('d') || '';
-          if (d.includes('M5 12') || d.includes('m5 12') || d.match(/^M\d+ 12h/)) {
-            btn.style.display = 'none';
-          }
-        }
-      });
-
       // --- Escape to hide ---
       if (!window._leonelKeys) {
         window._leonelKeys = true;
