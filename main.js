@@ -296,6 +296,21 @@ function injectUI() {
         document.body.prepend(bar);
       }
 
+      // --- Hide minimize button (the dash "—") ---
+      var allButtons = document.querySelectorAll('button');
+      allButtons.forEach(function(btn) {
+        var text = btn.textContent.trim();
+        // Match minimize buttons: "—", "−", "-", or single dash-like characters
+        if (text === '—' || text === '−' || text === '-' || text === '\u2013' || text === '\u2014' || text === '\u2212') {
+          btn.style.display = 'none';
+        }
+        // Also check for aria-label or title containing "minimize" or "minimizar"
+        var label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || '').toLowerCase();
+        if (label.includes('minim')) {
+          btn.style.display = 'none';
+        }
+      });
+
       // --- Escape to hide ---
       if (!window._leonelKeys) {
         window._leonelKeys = true;
