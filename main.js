@@ -16,7 +16,6 @@ let tray = null;
 let win = null;
 let lastScreenshot = null;
 let pendingAuthUrl = null;
-let redirectInterval = null;
 
 // Register custom protocol (must be before ready)
 app.setAsDefaultProtocolClient('leonel-quick');
@@ -38,6 +37,11 @@ app.whenReady().then(() => {
   createWindow();
   registerShortcut();
   ipcMain.on('hide-window', () => hideWindow());
+  ipcMain.on('open-external', (_e, url) => {
+    if (typeof url === 'string' && url.startsWith('https://leonel.app')) {
+      require('electron').shell.openExternal(url);
+    }
+  });
   ipcMain.handle('check-screen-permission', () => {
     if (process.platform === 'darwin') {
       return systemPreferences.getMediaAccessStatus('screen');
@@ -150,20 +154,30 @@ function createWindow() {
     },
   });
 
-  // Start on the main page so user can log in, then redirect to /exam
-  win.loadURL('https://leonel.app');
+  // Always start on /exam directly — never show the full website
+  win.loadURL('https://leonel.app/exam');
 
-  // After each page load, check if we should redirect to /exam
+  // After each page load, ensure we stay on /exam or show connect screen
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomFactor(0.85);
     injectUI();
-    checkAndRedirect();
-    startRedirectPolling();
+    ensureExamOnly();
   });
 
-  // Also catch SPA navigations (e.g. after login)
-  win.webContents.on('did-navigate-in-page', () => {
-    checkAndRedirect();
+  // Intercept navigations away from /exam (e.g. auth redirects)
+  win.webContents.on('will-navigate', (event, url) => {
+    // Allow /exam and /exam?quick_auth=... navigations
+    if (url.includes('/exam')) return;
+    // Block everything else (login page, main page, etc.) — show connect screen instead
+    event.preventDefault();
+    showConnectScreen();
+  });
+
+  // Also catch SPA navigations
+  win.webContents.on('did-navigate-in-page', (event, url) => {
+    if (!url.includes('/exam')) {
+      showConnectScreen();
+    }
   });
 
   // Send last screenshot when window becomes visible (fallback for tray click, etc.)
@@ -173,9 +187,9 @@ function createWindow() {
     }
   });
 
-  // Let leonel.app links navigate inside the window; external links open in browser
+  // Let /exam links navigate inside the window; everything else opens in browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('leonel.app')) {
+    if (url.includes('leonel.app/exam')) {
       win.loadURL(url);
     } else {
       require('electron').shell.openExternal(url);
@@ -189,56 +203,84 @@ function createWindow() {
   });
 }
 
-function startRedirectPolling() {
-  if (redirectInterval) clearInterval(redirectInterval);
-  let elapsed = 0;
-  redirectInterval = setInterval(() => {
-    elapsed += 1000;
-    if (elapsed >= 30000) {
-      clearInterval(redirectInterval);
-      redirectInterval = null;
-      return;
-    }
-    checkAndRedirect();
-  }, 1000);
-}
-
-function stopRedirectPolling() {
-  if (redirectInterval) {
-    clearInterval(redirectInterval);
-    redirectInterval = null;
-  }
-}
-
-function checkAndRedirect() {
+function ensureExamOnly() {
   if (!win || win.isDestroyed()) return;
-
   const currentURL = win.webContents.getURL();
-
-  // If already on /exam, we're good — stop polling
-  if (currentURL.includes('/exam')) {
-    stopRedirectPolling();
-    return;
+  // If we ended up somewhere other than /exam, show connect screen
+  if (!currentURL.includes('/exam')) {
+    showConnectScreen();
   }
+}
 
-  // If on main page, check if logged in and redirect to /exam
-  win.webContents.executeJavaScript(`
-    (function() {
-      // Check for Supabase auth token in localStorage
-      var keys = Object.keys(localStorage);
-      for (var i = 0; i < keys.length; i++) {
-        if (keys[i].startsWith('sb-') && keys[i].includes('auth-token')) {
-          return true;
-        }
-      }
-      return false;
-    })();
-  `).then(hasAuth => {
-    if (hasAuth) {
-      stopRedirectPolling();
-      win.loadURL('https://leonel.app/exam');
-    }
-  }).catch(() => {});
+function showConnectScreen() {
+  if (!win || win.isDestroyed()) return;
+  const isMac = process.platform === 'darwin';
+  const shortcut = isMac ? '⌘L' : 'Ctrl+L';
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #141414;
+    color: #fff;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .logo { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .logo span { color: #FF8300; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 32px; }
+  .instructions {
+    -webkit-app-region: no-drag;
+    text-align: center;
+    padding: 0 24px;
+  }
+  .step {
+    font-size: 13px;
+    color: #aaa;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .step strong { color: #FF8300; }
+  .link {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 8px 20px;
+    background: #FF8300;
+    color: #000;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  .link:hover { background: #e67700; }
+  .shortcut { font-size: 11px; color: #555; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <div class="logo"><span>quick</span></div>
+  <div class="subtitle">by Leonel</div>
+  <div class="instructions">
+    <div class="step">Para conectar tu cuenta:</div>
+    <div class="step">1. Abre <strong>leonel.app</strong> en tu navegador</div>
+    <div class="step">2. Haz clic en <strong>"Conectar mi cuenta"</strong></div>
+    <div class="step">3. Quick se conectara automaticamente</div>
+    <a class="link" href="https://leonel.app" target="_blank">Abrir leonel.app</a>
+  </div>
+  <div class="shortcut">${shortcut} para abrir/cerrar</div>
+</body>
+</html>
+  `)}`);
 }
 
 function injectUI() {
