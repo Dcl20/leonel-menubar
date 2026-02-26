@@ -1,5 +1,13 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, ipcMain, screen, desktopCapturer, systemPreferences } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// Native NSPanel module — converts Electron's NSWindow to a real NSPanel
+// with nonactivatingPanel style mask. This prevents app activation when shown.
+let panelModule = null;
+if (process.platform === 'darwin') {
+  try { panelModule = require('@ashubashir/electron-panel-window'); } catch (e) {}
+}
 
 // Global error handlers - log but don't crash
 process.on('uncaughtException', (err) => {
@@ -17,6 +25,24 @@ let win = null;
 let lastScreenshot = null;
 let pendingAuthUrl = null;
 
+// --- Window bounds persistence ---
+const boundsFile = path.join(app.getPath('userData'), 'window-bounds.json');
+
+function loadBounds() {
+  try {
+    return JSON.parse(fs.readFileSync(boundsFile, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveBounds() {
+  if (!win || win.isDestroyed()) return;
+  try {
+    fs.writeFileSync(boundsFile, JSON.stringify(win.getBounds()));
+  } catch (e) {}
+}
+
 // Register custom protocol (must be before ready)
 app.setAsDefaultProtocolClient('leonel-quick');
 
@@ -30,7 +56,8 @@ app.on('open-url', (event, url) => {
   }
 });
 
-if (app.dock) app.dock.hide();
+// Accessory policy: no dock icon, no Cmd+Tab, no app activation
+app.setActivationPolicy('accessory');
 
 app.whenReady().then(() => {
   createTray();
@@ -123,14 +150,16 @@ async function captureScreenshot() {
 }
 
 function createWindow() {
-  const pos = getDefaultPosition();
+  const saved = loadBounds();
+  const defaults = getDefaultPosition();
+  const bounds = saved || { x: defaults.x, y: defaults.y, width: 340, height: 280 };
   const isWin = process.platform === 'win32';
 
   win = new BrowserWindow({
-    width: 340,
-    height: 280,
-    x: pos.x,
-    y: pos.y,
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
     minWidth: 300,
     minHeight: 220,
     maxWidth: 600,
@@ -146,6 +175,9 @@ function createWindow() {
     hasShadow: true,
     backgroundColor: '#141414',
     roundedCorners: true,
+    // macOS: titleBarStyle required by electron-panel-window module
+    // Windows: toolbar type for no taskbar entry
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'customButtonsOnHover', closable: false } : {}),
     ...(isWin ? { type: 'toolbar', thickFrame: false } : {}),
     webPreferences: {
       nodeIntegration: false,
@@ -153,6 +185,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+
+  // macOS: convert to real NSPanel with nonactivatingPanel style mask.
+  // This is what makes the window truly invisible to focus tracking.
+  if (panelModule) {
+    panelModule.makePanel(win);
+    win.setContentProtection(true); // hide from screen capture APIs
+  }
 
   // Always start on /exam directly — never show the full website
   win.loadURL('https://leonel.app/exam');
@@ -197,8 +236,13 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Save bounds when moved or resized
+  win.on('moved', () => saveBounds());
+  win.on('resized', () => saveBounds());
+
   win.on('close', (e) => {
     e.preventDefault();
+    saveBounds();
     win.hide();
   });
 }
@@ -379,15 +423,22 @@ async function toggleWindow() {
   const screenshot = await captureScreenshot();
   lastScreenshot = screenshot;
 
-  // 2. Now show the Leonel window
-  const pos = getDefaultPosition();
-  win.setBounds({ x: pos.x, y: pos.y, width: 340, height: 280 });
-  win.show();
-  win.focus();
+  // 2. Now show the Leonel window at saved position (or default)
+  const saved = loadBounds();
+  const defaults = getDefaultPosition();
+  const bounds = saved || { x: defaults.x, y: defaults.y, width: 340, height: 280 };
+  win.setBounds(bounds);
 
-  // Windows DPI workaround: re-apply bounds after show (first call can be wrong)
-  if (process.platform === 'win32') {
-    win.setBounds({ x: pos.x, y: pos.y, width: 340, height: 280 });
+  if (panelModule) {
+    // showInactive() displays without activating, makeKeyWindow() gives
+    // keyboard focus WITHOUT activating the app — browser keeps focus.
+    win.showInactive();
+    panelModule.makeKeyWindow(win);
+  } else {
+    win.show();
+    win.focus();
+    // Windows DPI workaround: re-apply bounds after show
+    win.setBounds(bounds);
     win.setSkipTaskbar(true);
   }
 
@@ -402,7 +453,13 @@ function registerShortcut() {
 }
 
 app.on('window-all-closed', (e) => e.preventDefault());
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // Convert panel back to window before quitting to prevent crashes
+  if (panelModule && win && !win.isDestroyed()) {
+    try { panelModule.makeWindow(win); } catch (e) {}
+  }
+});
 app.on('second-instance', (_event, argv) => {
   // Windows: protocol URL comes in argv of second instance
   const protocolArg = argv.find(a => a.startsWith('leonel-quick://'));
@@ -439,8 +496,13 @@ function handleProtocolUrl(url) {
     }
 
     win.loadURL(`https://leonel.app/exam?quick_auth=${encodeURIComponent(sanitized)}`);
-    win.show();
-    win.focus();
+    if (panelModule) {
+      win.showInactive();
+      panelModule.makeKeyWindow(win);
+    } else {
+      win.show();
+      win.focus();
+    }
   } catch (e) {
     console.error('[leonel-quick] Protocol handler error:', e.message);
   }

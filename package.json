@@ -1,6 +1,6 @@
 {
   "name": "leonel-quick",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Leonel Quick - Menu bar app para respuestas rápidas",
   "main": "main.js",
   "scripts": {
@@ -17,7 +17,9 @@
     "protocols": [
       {
         "name": "Leonel Quick Auth",
-        "schemes": ["leonel-quick"]
+        "schemes": [
+          "leonel-quick"
+        ]
       }
     ],
     "appId": "app.leonel.quick",
@@ -40,7 +42,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -79,6 +83,7 @@
     }
   },
   "dependencies": {
+    "@ashubashir/electron-panel-window": "^1.0.12",
     "electron-updater": "^6.1.7"
   },
   "devDependencies": {
